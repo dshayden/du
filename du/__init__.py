@@ -74,7 +74,7 @@ def rgb2lab(rgb):
   if rgb.ndim==1: rgb = np.expand_dims(rgb, axis=0)
   assert rgb.ndim == 2 and rgb.shape[1]==3, 'lab must be Nx3'
 
-  nEl = rgb.size/3
+  nEl = rgb.size // 3
   rgbIm = rgb.reshape((nEl, 1, 3)).astype('float32')
   labIm = cv2.cvtColor(rgbIm, cv2.COLOR_RGB2LAB)
   return labIm.reshape((nEl, 3))
@@ -96,7 +96,7 @@ def lab2rgb(lab):
   if lab.ndim==1: lab = np.expand_dims(lab, axis=0)
   assert lab.ndim == 2 and lab.shape[1]==3, 'lab must be Nx3'
 
-  nEl = lab.size/3
+  nEl = lab.size // 3
   labIm = lab.reshape((nEl, 1, 3)).astype('float32')
   rgbIm = cv2.cvtColor(labIm, cv2.COLOR_LAB2RGB)
   return rgbIm.reshape((nEl, 3))
