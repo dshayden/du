@@ -131,3 +131,37 @@ def diffcolors(nCols, bgCols=[1,1,1]):
     colors[i,:] = rgb[idx,:]
     lastLab = np.expand_dims(lab[idx,:], axis=0)
   return colors
+
+def DrawOnImage(img, coords, color):
+  """Blends img with color at coords.
+
+  Args:
+    img (numpy.ndarray): M x N x 3 image, assumed to be RGB
+    coords (sequence-like): length-2 sequence of row, column coordinates
+    color (sequence-like): length-3 or 4 sequence of RGB/RGBA colors in [0,1]
+
+  Example:
+    >>> import matplotlib.image as mpimg, skimage.draw as draw
+    >>> im = mpimg.imread('...')
+    >>> coords = draw.circle(img.shape[0]/2, img.shape[1]/2, 40, shape=im.shape)
+    >>> color = [1, 0, 0, 0.5]
+    >>> imWithTransparentRedCircle = DrawOnImage(im, coords, color)
+  """
+  import numpy as np
+
+  # get transparency
+  if len(color)==3: alpha = 1
+  elif len(color)==4: alpha = color[3]
+  color = np.asarray(color[0:3])
+  if img.dtype==np.uint8: color = (color*255).astype(np.uint8)
+  else: color = color.astype(img.dtype)
+
+  # make solid color image
+  colorIm = np.ones_like(img)
+  for i in range(3): colorIm[:,:,i] *= color[i]
+  
+  # blend images
+  im = img.copy()
+  im[coords[0],coords[1],:] = (1-alpha)*img[coords[0],coords[1],:] + \
+    alpha*colorIm[coords[0],coords[1],:]
+  return im
