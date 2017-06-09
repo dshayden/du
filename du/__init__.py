@@ -1,4 +1,4 @@
-__version__ = '0.1.1'
+__version__ = '0.2'
 
 def GetFilePaths(path, types):
   """Return sorted list of absolute-pathed files in a directory.

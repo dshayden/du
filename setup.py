@@ -6,7 +6,7 @@ def readme():
     return f.read()
 
 setup(name='du',
-  version='0.1.1',
+  version='0.2',
   description='Data handling utilities',
   long_description=readme(),
   classifiers=[
@@ -21,7 +21,8 @@ setup(name='du',
   license='MIT',
   packages=['du'],
   install_requires=[
-    'joblib', 'numpy', 'opencv-python>=3.1', 'scipy'
+    'joblib', 'numpy', 'opencv-python>=3.1', 'scipy', 'scikit-image',
+    'matplotlib', 'screeninfo'
   ],
   test_suite='nose.collector',
   tests_require=['nose', 'nose-cover3'],
