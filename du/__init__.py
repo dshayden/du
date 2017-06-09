@@ -234,3 +234,23 @@ def figure(num=None, x=-1, y=-1, w=-1, h=-1):
   if num==None: num = winManager.num
   hFig = plt.figure(num)
   return hFig
+
+def tic():
+  """Store current time in as high a resolution as the system will give.
+
+  Use with toc(), which returns the difference (in seconds) from the last tic().
+  Nested calls are not supported.
+  """
+  import time
+  tic.secs = time.time()
+
+def toc():
+  """Return elapsed seconds as float since tic() was last called.
+
+  Use with toc(), which returns the difference (in seconds) from the last tic()
+  Nested calls are not supported.
+  Returns 0 if tic() has not been called.
+  """
+  import time
+  if hasattr(tic, 'secs'): return time.time() - tic.secs
+  else: return float(0)
