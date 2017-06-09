@@ -165,3 +165,72 @@ def DrawOnImage(img, coords, color):
   im[coords[0],coords[1],:] = (1-alpha)*img[coords[0],coords[1],:] + \
     alpha*colorIm[coords[0],coords[1],:]
   return im
+
+def GetScreenResolution():
+  """Return (width, height) tuple of current screen's resolution
+  """
+  import sys
+  if sys.platform == 'darwin':
+    # screeninfo isn't supported on OSX so we have to run an external cmd
+    import subprocess
+    cmd = """osascript -e 'tell application "Finder" to get bounds of """ \
+      """window of desktop'"""
+    res = str(subprocess.Popen([cmd],stdout=subprocess.PIPE,
+      shell=True).communicate()[0])
+    toks = res.split(', ') # returns ['x', 'y', 'w', 'h']
+    width, height = (int(toks[2]), int(toks[3]))
+    return (width, height)
+  else:
+    import screeninfo
+    sz = screeninfo.get_monitors()[0]
+    return (sz.width, sz.height)
+
+def figure(num=None, x=-1, y=-1, w=-1, h=-1):
+  """Create/modify size/position of a matplotlib figure. Assumes Qt5 backend.
+
+  Args:
+    num (int): figure index; None if a new figure is desired.
+    x,y,w,h:   Desired location and dimensions on current monitor, can be any of:
+                 absolute (#pixels): must be greater than 1
+                 relative (0..1): fraction of current monitor's geometry
+                 unchanged (-1): don't change from current value
+
+  Returns:
+    hFig:      Reference to targeted/newly-created figure
+  """
+  import matplotlib, matplotlib.pyplot as plt
+  if matplotlib.get_backend() != 'Qt5Agg':
+    raise NotImplementedError('Only supports qt5 backend.')
+
+  screenWidth, screenHeight = GetScreenResolution()
+
+  winManager = plt.get_current_fig_manager()
+  g = winManager.window.geometry()
+  wx, wy, ww, wh = (g.x(), g.y(), g.width(), g.height())
+
+  if x>=0 and x<=1: x*=screenWidth
+  elif x>1:         None
+  elif x==-1:       x = wx
+  else:             raise ValueError('x is invalid')
+
+  if y>=0 and y<=1: y*=screenHeight
+  elif y>1:         None
+  elif y==-1:       y = wy
+  else:             raise ValueError('y is invalid')
+
+  if w>=0 and w<=1: w*=screenWidth
+  elif w>1:         None
+  elif w==-1:       w = ww
+  else:             raise ValueError('w is invalid')
+
+  if h>=0 and h<=1: h*=screenHeight
+  elif h>1:         None
+  elif h==-1:       h = wh
+  else:             raise ValueError('h is invalid')
+
+  x = round(x); y = round(y); w = round(w); h = round(h)
+  winManager.window.setGeometry(x, y, w, h)
+
+  if num==None: num = winManager.num
+  hFig = plt.figure(num)
+  return hFig
