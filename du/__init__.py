@@ -1,28 +1,39 @@
 __version__ = '0.1.1'
 
-def GetImgPaths(path, **kwargs):
-  """Return sorted list of absolute-pathed images in a directory.
+def GetFilePaths(path, types):
+  """Return sorted list of absolute-pathed files in a directory.
   
   Args:
-    path (str): path to directory containing images.
-
-  Keyword Args:
-    types (str): regexp of permissible extensions (ext1|ext2|...)
+    path (str): path to directory containing files.
+    types (str): regexp of valid file extensions (not including dot).
 
   Example:
-    >>> GetImgPaths('relative/path/to/images', types='(jpg|jpeg)')
+    >>> GetFilePaths('relative/path/to/images', types='(jpg|jpeg)')
       ['/abs/path/to/img1.jpg', '/abs/path/to/img2.jpg', ...]
 
-    >>> GetImgPaths('path/to/images')
-      ['/abs/path/to/img1.jpg', '/abs/path/to/img2.bmp', ...]
+    >>> GetFilePaths('path/to/zips', types='zip')
+      ['/abs/path/to/file1.zip', '/abs/path/to/file2.zip', ...]
   """
   import re, os, glob
-  types = kwargs.get('types', '(jpg|jpeg|png|bmp|tif|tiff|ppm|pgm)')
   exp = re.compile('%s$' % types, re.IGNORECASE)
   files = glob.glob('%s%s*' % (path, os.path.sep))
-  imgsRel = [x for x in files if exp.findall(x)]
-  imgsAbs = [os.path.abspath(x) for x in imgsRel]
-  return sorted(imgsAbs)
+  filesRel = [x for x in files if exp.findall(x)]
+  filesAbs = [os.path.abspath(x) for x in filesRel]
+  return sorted(filesAbs)
+
+def GetImgPaths(path):
+  """Return sorted list of absolute-pathed images in a directory.
+
+  Will collect any files with the following extensions:
+    jpg, jpeg, png, bmp, tif, tiff, ppm, pgm, pbm
+
+  This is a convenience wrapper on GetFilePaths.
+  
+  Args:
+    path (str): path to directory containing files.
+  """
+  types = '(jpg|jpeg|png|bmp|tif|tiff|ppm|pgm|pbm)'
+  return GetFilePaths(path, types)
 
 def fileparts(p):
   """Returns (base, name, ext) of file path p (whether or not it exists).
@@ -286,7 +297,7 @@ def imread(fname):
   """
   import cv2
   im = cv2.imread(fname, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
-  if im.ndim==3: cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+  if im.ndim==3: im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
   return im
 
 def rgbs2mp4(imgs, outFname, showOutput=False, crf=23, imExt='.jpg'):
@@ -377,3 +388,34 @@ def mat2im(x, vmin=None, vmax=None, cmap=None, lowColor=None, keepAlpha=False):
     im = im[0:3, :]
     im = np.moveaxis(im, source=0, destination=-1)
   return y
+
+def ViewManyImages(imgs, titles=None):
+  """Display set of images on a grid
+
+  Args:
+    imgs (sequence-like): sequence of images (filenames or numpy.ndarray)
+    titles (str or sequence-like): if str, apply as suptitle, else if
+                                   sequence-like, apply ith item to ith plot
+
+  Returns:
+    axs (list of matplotlib.axes.Axes): list of each subplot's axes.
+  """
+  import matplotlib.pyplot as plt, math
+  axs = []
+  nImgs = len(imgs)
+  n = math.ceil(math.sqrt(nImgs))
+  
+  for i in range(nImgs):
+    ax = plt.subplot(n, n, i+1)
+    if type(imgs[i])==str: img = imread(imgs[i])
+    else: img = imgs[i]
+    plt.imshow(img)
+    ax.set_xticks([]); ax.set_yticks([])
+    axs.append(ax)
+    if titles is not None and type(titles) != str:
+      ax.set_title(titles[i])
+
+  if titles is not None and type(titles)==str:
+    plt.suptitle(titles)
+
+  return axs
