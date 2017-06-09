@@ -1,4 +1,4 @@
-__version__ = 0.1
+__version__ = '0.1.1'
 
 def GetImgPaths(path, **kwargs):
   """Return sorted list of absolute-pathed images in a directory.
@@ -331,3 +331,49 @@ def rgbs2mp4(imgs, outFname, showOutput=False, crf=23, imExt='.jpg'):
   stderrPipe = None if showOutput else subprocess.PIPE
   res = str(subprocess.Popen([cmdStr],stdout=subprocess.PIPE,
     stderr=stderrPipe, shell=True).communicate()[0])
+
+def mat2im(x, vmin=None, vmax=None, cmap=None, lowColor=None, keepAlpha=False):
+  """Convert values in array to colors according to a colormap.
+
+  Typically used to colorize 2D arrays for better visualization, in which case,
+  does the ~same preprocessing as Matlab's imagesc(...).
+
+  Args:
+    x (numpy.ndarray): array with arbitrary values.
+    vmin (numeric): minimum value for colormap interpolation
+    vmax (numeric): maximum value for colormap interpolation
+    cmap (matplotlib.colors.Colormap): colormap to be used, will most often be
+                                       a LinearSegmentedColormap.
+    lowColor (array-like): RGB value to swap out with the smallest color in
+                           cmap (i.e. for making 0 values black).
+    keepAlpha (bool): return with alpha information.
+
+  Returns:
+    im: array s.t. im.ndim==x.ndim+1 and
+          im.shape[-1]==3 if keepAlpha is false (the default)
+          im.shape[-1]==4 otherwise.
+  """
+  import matplotlib, numpy as np
+
+  # use default colormap
+  if cmap is None:
+    cmap = getattr(matplotlib.cm, matplotlib.rcParams['image.cmap'])
+
+  if lowColor is not None:
+    # make custom colormap from 256 colors, swap lowest out
+    newColors = cmap(np.linspace(0,1,256))
+    if len(lowColor)==3:
+      lowColor = np.array([lowColor[0], lowColor[1], lowColor[2], 1])
+    newColors[0,:] = lowColor
+    cmap = matplotlib.colors.ListedColormap(newColors)
+  
+  # apply normalization and
+  normalizer = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
+  im = cmap(normalizer(x))
+  if not keepAlpha:
+    # don't know ndim in advance, but we know last dimension is size-4;
+    # swap it to the first, remove the alpha channel, swap it back.
+    im = np.moveaxis(im, source=-1, destination=0)
+    im = im[0:3, :]
+    im = np.moveaxis(im, source=0, destination=-1)
+  return y
