@@ -33,19 +33,32 @@ def fileparts(p):
   Example:
     >>> fileparts('/a/b/c.txt')
       ('/a/b', 'c', '.txt')
+    >>> fileparts('/a/b')
+      ('/a', 'b', '')
   """
   import os
   base, fullname = os.path.split(p)
   ext = fullname.rfind('.')
-  name, ext = (fullname[:ext], fullname[ext:])
-  return base, name, ext
+  if ext==-1: return base, fullname, ''
+  else:
+    name, ext = (fullname[:ext], fullname[ext:])
+    return base, name, ext
 
 def Parfor(fcn, items):
-  """Runs supplied function on each item in items in parallel via joblib.
+  """Runs supplied function for each item in items in parallel via joblib.
   
   Args:
-    fcn (function): function that takes one argument
-    items (list): each element is passed to fcn on some thread
+    fcn (function): function to be called.
+    items (list): each element is passed to fcn on some thread.
+                  if type(items[0]) == list or type(items[0]) == tuple:
+                    it is assumed that each inner item is a list and will be
+                    unpacked when passed to fcn (i.e. fcn(*items[0]))
+                  else:
+                    each item is passed directly to fcn (i.e. fcn(items[0]))
+
+  Returns:
+    List containing one entry for each function call, full of Nones if fcn does
+    not return anything.
 
   Example:
     >>> def f(x): return x**2
@@ -53,7 +66,12 @@ def Parfor(fcn, items):
     >>> squares = Parfor(f, items)
   """
   from joblib import Parallel, delayed
-  return Parallel(n_jobs=-1)(delayed(fcn)(i) for i in items)
+  if type(items[0]) == list or type(items[0]) == tuple:
+    # unpack each inner list for function
+    return Parallel(n_jobs=-1)(delayed(fcn)(*i) for i in items)
+  else:
+    # list of single items, pack each directly
+    return Parallel(n_jobs=-1)(delayed(fcn)(i) for i in items)
 
 def rgb2lab(rgb):
   """Convert RGB to CIELAB colorspace.
@@ -254,3 +272,62 @@ def toc():
   import time
   if hasattr(tic, 'secs'): return time.time() - tic.secs
   else: return float(0)
+
+def imread(fname):
+  """Read image into numpy array.
+
+  Depth images are returned as uint16, color images are RGB uint8.
+
+  Args:
+    fname (str): path of image to read
+
+  Returns:
+    img (numpy.ndarray): desired image (either 1- or 3-channel).
+  """
+  import cv2
+  im = cv2.imread(fname, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
+  if im.ndim==3: cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+  return im
+
+def rgbs2mp4(imgs, outFname, showOutput=False, crf=23, imExt='.jpg'):
+  """pack RGB images into an mp4 using external call to ffmpeg.
+
+  Args:
+    imgs (list):       list of images, either filenames or numpy.ndarrays.
+    outFname (str):    output filename, should have no ending other than mp4
+    showOutput (bool): show ffmpeg video output.
+    crf (int):         ffmpeg video quality factor between 0..51
+                         0: lossless (not recommended)
+                         18: visually lossless
+                         23: normal
+    imExt (str):       desired extension for temporarily writing images in
+                       memory; only used if imgs is a list of numpy.ndarrays.
+  """
+  import numpy as np, subprocess
+
+  if type(imgs[0]) == str:
+    # files already on disk, run directly on them
+    inDir, name, inExt = fileparts(imgs[0])
+
+  elif type(imgs[0]) == np.ndarray:
+    # write images to temp directory
+    import tempfile, cv2
+    inDir = tempfile.mkdtemp()
+    inExt = '.jpg'
+    nItems = len(imgs)
+    fnames = ['%s/img-%08d%s' % (inDir, i, inExt) for i in range(nItems)]
+    args = [(fnames[i], imgs[i]) for i in range(nItems)]
+    Parfor(cv2.imwrite, args)
+
+  # ensure output filename ends with mp4
+  outDir, outName, outExt = fileparts(outFname)
+  if len(outExt)==0: outFname = outFname + '.mp4'
+
+  # format command
+  cmd = "ffmpeg -y -pattern_type glob -i '%s/*%s' -c:v libx264 -crf %d -pix_fmt yuv420p %s"
+  cmdStr = cmd % (inDir, inExt, crf, outFname)
+
+  # run command
+  stderrPipe = None if showOutput else subprocess.PIPE
+  res = str(subprocess.Popen([cmdStr],stdout=subprocess.PIPE,
+    stderr=stderrPipe, shell=True).communicate()[0])
