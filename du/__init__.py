@@ -170,8 +170,8 @@ def DrawOnImage(img, coords, color):
     color (sequence-like): length-3 or 4 sequence of RGB/RGBA colors in [0,1]
 
   Example:
-    >>> import matplotlib.image as mpimg, skimage.draw as draw
-    >>> im = mpimg.imread('...')
+    >>> import skimage.draw as draw
+    >>> im = imread(...)
     >>> coords = draw.circle(img.shape[0]/2, img.shape[1]/2, 40, shape=im.shape)
     >>> color = [1, 0, 0, 0.5]
     >>> imWithTransparentRedCircle = DrawOnImage(im, coords, color)
@@ -419,3 +419,62 @@ def ViewManyImages(imgs, titles=None):
     plt.suptitle(titles)
 
   return axs
+
+def ViewPlots(idx, fcn, fig=None):
+  """Create figure with keyboard callbacks to iterate over custom display code
+
+  INTERFACE:
+    <left arrow>: iterate backwards by idxMod
+    <right arrow>: iterate forwards by idxMod
+    <up arrow>: double idxMod (no maximum)
+    <down arrow>: half idxMod (minimum 1)
+      idxMod is initialized to 1
+
+  NOTE: Matplotlib is ~slow at plotting and key events get buffered so rapid,
+        repeated taps could cause significant lag.
+
+  Args:
+    idx (range/sequence-like): Valid indices to pass to fcn
+    fcn (function): Display code for each index, must accept an integer argument
+                    and can optionally accept keywords containing additional
+                    information:
+                      'idxMod': current left/right increment
+                      'figure': reference to figure used for display.
+    fig (matplotlib.figure.Figure): Figure to use, will create one if None
+
+  Returns:
+    (fig, cid): fig is matplotlib.figure.Figure used for display
+                cid is an integer connection ID for use with
+                  fig.canvas.mpl_disconnect for removing the key callback.
+  """
+  import matplotlib.pyplot as plt
+  if fig is None: fig = plt.figure()
+
+  curIdx = idx[0]
+  idxMod = 1
+  passKwargs = True
+
+  def onKey(event):
+    nonlocal idx; nonlocal curIdx; nonlocal idxMod; nonlocal fig;
+    nonlocal passKwargs
+
+    def getI(i): return max(idx[0], min(idx[-1], i))
+    if event.key.find('left') != -1: curIdx = getI(curIdx - idxMod)
+    elif event.key.find('right') != -1: curIdx = getI(curIdx + idxMod)
+    elif event.key.find('up') != -1: idxMod = max(1, idxMod * 2)
+    elif event.key.find('down') != -1: idxMod = max(1, idxMod / 2)
+    kwargs = {'idxMod': idxMod, 'figure': fig}
+    if passKwargs: fcn(curIdx, **kwargs)
+    else: fcn(curIdx)
+    fig.canvas.draw()
+
+  cid = fig.canvas.mpl_connect('key_press_event', onKey)
+
+  kwargs = {'idxMod': idxMod, 'figure': fig}
+  try:
+    fcn(curIdx, **kwargs)
+  except TypeError:
+    fcn(curIdx)
+    passKwargs = False
+
+  return (fig, cid)
