@@ -461,8 +461,8 @@ def ViewPlots(idx, fcn, fig=None):
     def getI(i): return max(idx[0], min(idx[-1], i))
     if event.key.find('left') != -1: curIdx = getI(curIdx - idxMod)
     elif event.key.find('right') != -1: curIdx = getI(curIdx + idxMod)
-    elif event.key.find('up') != -1: idxMod = max(1, idxMod * 2)
-    elif event.key.find('down') != -1: idxMod = max(1, idxMod / 2)
+    elif event.key.find('up') != -1: idxMod = int(max(1, idxMod * 2))
+    elif event.key.find('down') != -1: idxMod = int(max(1, idxMod / 2))
     kwargs = {'idxMod': idxMod, 'figure': fig}
     if passKwargs: fcn(curIdx, **kwargs)
     else: fcn(curIdx)
@@ -478,6 +478,22 @@ def ViewPlots(idx, fcn, fig=None):
     passKwargs = False
 
   return (fig, cid)
+
+def ViewImgs(imgs):
+  """Interactively view collection of images using ViewPlots.
+
+  Args:
+    imgs (sequence): sequence of image filenames or numpy.ndarrays
+  """
+  import matplotlib.pyplot as plt
+  nImgs = len(imgs)
+  def ViewImg(i, **kwargs):
+    nonlocal imgs; nonlocal nImgs
+    img = imread(imgs[i]) if type(imgs[i])==str else imgs[i]
+    plt.imshow(img)
+    plt.title('%d of %d, idxMod: %d' % (i+1, nImgs, kwargs.get('idxMod', 0)))
+  ViewPlots(range(len(imgs)), ViewImg)
+  plt.show()
 
 def imresize(img, size, resample='nearest'):
   """Resize image with given resampling method
