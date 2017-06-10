@@ -478,3 +478,30 @@ def ViewPlots(idx, fcn, fig=None):
     passKwargs = False
 
   return (fig, cid)
+
+def imresize(img, size, resample='nearest'):
+  """Resize image with given resampling method
+
+  Args:
+    img (numpy.ndarray): grayscale or color uint8 or uin16 image.
+    size (numeric or tuple): desired size: numeric is fractional, tuple is (y,x)
+                             in pixels.
+    resample (string): one of 'nearest', 'bilinear', 'bicubic', 'lanczos'
+                       NOTE: only 'nearest' works on uint16 data
+
+  Returns:
+    imgR (numpy.ndarray): resized image with the same datatype
+  """
+  import PIL.Image, numpy as np
+  if type(size) in [list, tuple]: sz = (size[1], size[0])
+  else: sz = (int(img.shape[1]*size), int(img.shape[0]*size))
+
+  if resample=='nearest': method = PIL.Image.NEAREST
+  elif resample=='bilinear': method = PIL.Image.BILINEAR
+  elif resample=='bicubic': method = PIL.Image.BICUBIC
+  elif resample=='lanczos': method = PIL.Image.LANCZOS
+  else: raise TypeError("resample must be one of 'nearest', " \
+    "'bilinear', 'bicubic', 'lanczos'")
+
+  pilImg = PIL.Image.fromarray(img).resize(sz, method)
+  return np.array(pilImg, dtype=img.dtype)
