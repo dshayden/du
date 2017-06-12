@@ -387,7 +387,7 @@ def mat2im(x, vmin=None, vmax=None, cmap=None, lowColor=None, keepAlpha=False):
     im = np.moveaxis(im, source=-1, destination=0)
     im = im[0:3, :]
     im = np.moveaxis(im, source=0, destination=-1)
-  return y
+  return im
 
 def ViewManyImages(imgs, titles=None):
   """Display set of images on a grid
@@ -423,16 +423,6 @@ def ViewManyImages(imgs, titles=None):
 def ViewPlots(idx, fcn, fig=None):
   """Create figure with keyboard callbacks to iterate over custom display code
 
-  INTERFACE:
-    <left arrow>: iterate backwards by idxMod
-    <right arrow>: iterate forwards by idxMod
-    <up arrow>: double idxMod (no maximum)
-    <down arrow>: half idxMod (minimum 1)
-      idxMod is initialized to 1
-
-  NOTE: Matplotlib is ~slow at plotting and key events get buffered so rapid,
-        repeated taps could cause significant lag.
-
   Args:
     idx (range/sequence-like): Valid indices to pass to fcn
     fcn (function): Display code for each index, must accept an integer argument
@@ -446,6 +436,16 @@ def ViewPlots(idx, fcn, fig=None):
     (fig, cid): fig is matplotlib.figure.Figure used for display
                 cid is an integer connection ID for use with
                   fig.canvas.mpl_disconnect for removing the key callback.
+
+  INTERFACE:
+    <left arrow>: iterate backwards by idxMod
+    <right arrow>: iterate forwards by idxMod
+    <up arrow>: double idxMod (no maximum)
+    <down arrow>: half idxMod (minimum 1)
+      idxMod is initialized to 1
+
+  NOTE: Matplotlib is ~slow at plotting and key events get buffered so rapid,
+        repeated taps could cause significant lag.
   """
   import matplotlib.pyplot as plt
   if fig is None: fig = plt.figure()
@@ -493,6 +493,114 @@ def ViewImgs(imgs):
     plt.imshow(img)
     plt.title('%d of %d, idxMod: %d' % (i+1, nImgs, kwargs.get('idxMod', 0)))
   ViewPlots(range(len(imgs)), ViewImg)
+  plt.show()
+
+def splabel(img, nSegments, outFname, sigma=1, maxTargets=10, figure=None):
+  """Interactively segment an image using superpixel refinements.
+
+  Args:
+    img (numpy.ndarray): image to segment, must be RGB
+    nSegments (sequence-like): seq. of number of slic components to precompute
+    outFname (str): output uint16 png image of segmentation labels
+    sigma (float): SLIC sigma parameter
+    maxTargets (int): maximum number of separate layers
+    figure (matplotlib.figure.Figure): existing figure to use.
+
+  INTERFACE:
+    Click within a superpixel to add all pixels within boundary to the active
+    segmentation layer. Change active segmentation layer / superpixel resolution
+    with arrow keys; press 'w' to save results.
+
+    Hotkeys
+      <left arrow>: Change active segmentation layer down by 1
+      <right arrow>: Change active segmentation layer up by 1
+      <up arrow>: Recompute superpixels with +100 segments.
+      <down arrow>: Recompute superpixels with -100 segments.
+      h: hide / show superpixel boundaries
+      w: write results to outFname
+    
+    NOTE: Active segmentation layer begins at 1.
+    NOTE: Changing active segmentation layer to 0 allows for removal of
+          segmentation masks on click.
+  """
+  import matplotlib.pyplot as plt, numpy as np
+  import skimage.segmentation as seg
+  import cv2
+
+  base, name, ext = fileparts(outFname)
+  if ext.lower() != '.png': raise ValueError('outFname must end in .png')
+
+  colors = np.concatenate((diffcolors(maxTargets),
+    0.6*np.ones((maxTargets,1))), axis=1)
+
+  if figure is None: fig = figure(w=img.shape[1], h=img.shape[0])
+  else: fig = figure
+
+  if type(nSegments)==int: nSegments = (nSegments, )
+
+  ax = fig.add_subplot(111)
+
+  labelImg = np.zeros(img.shape[0:2], dtype=np.uint16)
+  
+  items = [(img, x, 10, 50, sigma) for x in nSegments]
+  slicLabels = Parfor(seg.slic, items)
+
+  slicIdx = 0
+  curIdx = 1
+  showSlic = True
+
+  def redraw():
+    nonlocal curIdx; nonlocal fig; nonlocal labelImg; nonlocal slicLabels
+    nonlocal nSegments; nonlocal slicIdx
+    spStr = 'SP Res: %d of %d' % (slicIdx, len(nSegments))
+
+    if curIdx > 0: title = 'Click to label target %d; %s' % (curIdx, spStr)
+    else: title = 'Click to remove target label; %s' % spStr
+    plt.title(title)
+
+    im = img.copy()
+    uniqLabels = np.unique(labelImg)
+    for i in uniqLabels[uniqLabels>0]:
+      im = DrawOnImage(im, np.nonzero(labelImg==i), colors[i-1,:])
+
+    if showSlic: ax.imshow(seg.mark_boundaries(im, slicLabels[slicIdx]))
+    else: ax.imshow(im)
+    fig.canvas.draw()
+
+  def onKey(event):
+    nonlocal curIdx; nonlocal slicLabels; nonlocal img; nonlocal nSegments
+    nonlocal sigma; nonlocal showSlic; nonlocal labelImg; nonlocal outFname
+    nonlocal slicIdx
+
+    if event.key.find('left') != -1:
+      curIdx = max(0, min(curIdx-1, maxTargets))
+    if event.key.find('right') != -1:
+      curIdx = max(0, min(curIdx+1, maxTargets))
+    if event.key.find('up') != -1:
+      slicIdx = min(len(nSegments)-1, slicIdx+1)
+    if event.key.find('down') != -1:
+      slicIdx = max(0, slicIdx-1)
+    if event.key.lower() == 'h':
+      showSlic = True if showSlic==False else False
+    if event.key.lower() == 'w':
+      cv2.imwrite(outFname, labelImg)
+      print('Saved results to %s.' % outFname)
+    redraw()
+
+  def onClick(event):
+    nonlocal curIdx; nonlocal slicLabels; nonlocal labelImg
+    nonlocal slicIdx
+    y,x = (int(event.ydata), int(event.xdata))
+    labelImg[slicLabels[slicIdx]==slicLabels[slicIdx][y,x]] = curIdx
+    redraw()
+
+  ax = fig.add_subplot(111)
+  # ax.imshow(seg.mark_boundaries(img, slicLabels, mode='thick'))
+  ax.imshow(seg.mark_boundaries(img, slicLabels[slicIdx], mode='thick'))
+  plt.axis('off')
+  fig.canvas.mpl_connect('key_press_event', onKey)
+  fig.canvas.mpl_connect('button_press_event', onClick)
+  redraw()
   plt.show()
 
 def imresize(img, size, resample='nearest'):
