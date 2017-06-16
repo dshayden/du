@@ -55,7 +55,7 @@ def fileparts(p):
     name, ext = (fullname[:ext], fullname[ext:])
     return base, name, ext
 
-def Parfor(fcn, items):
+def Parfor(fcn, items, nWorkers=None, unpack=None):
   """Runs supplied function for each item in items in parallel via joblib.
   
   Args:
@@ -66,6 +66,8 @@ def Parfor(fcn, items):
                     unpacked when passed to fcn (i.e. fcn(*items[0]))
                   else:
                     each item is passed directly to fcn (i.e. fcn(items[0]))
+    nWorkers (int): Number of processes to use, defaults to all
+    unpack (bool): Force unpacking / not unpacking arguments.
 
   Returns:
     List containing one entry for each function call, full of Nones if fcn does
@@ -77,12 +79,12 @@ def Parfor(fcn, items):
     >>> squares = Parfor(f, items)
   """
   from joblib import Parallel, delayed
-  if type(items[0]) == list or type(items[0]) == tuple:
-    # unpack each inner list for function
-    return Parallel(n_jobs=-1)(delayed(fcn)(*i) for i in items)
-  else:
-    # list of single items, pack each directly
-    return Parallel(n_jobs=-1)(delayed(fcn)(i) for i in items)
+  if unpack is None:
+    if type(items[0]) == list or type(items[0]) == tuple: unpack = True
+    else: unpack = False
+  if nWorkers is None: nWorkers = -1
+  if unpack: return Parallel(n_jobs=nWorkers)(delayed(fcn)(*i) for i in items)
+  else: return Parallel(n_jobs=nWorkers)(delayed(fcn)(i) for i in items)
 
 def rgb2lab(rgb):
   """Convert RGB to CIELAB colorspace.
@@ -130,12 +132,15 @@ def lab2rgb(lab):
   rgbIm = cv2.cvtColor(labIm, cv2.COLOR_LAB2RGB)
   return rgbIm.reshape((nEl, 3))
 
-def diffcolors(nCols, bgCols=[1,1,1]):
-  """Return Nx3 array of perceptually-different colors in [0..1] rgb range.
+def diffcolors(nCols, bgCols=[1,1,1], alpha=None):
+  """Return Nx3 or Nx4 array of perceptually-different colors in [0..1] rgb.
 
   Args:
     nCols (int): number of desired colors.
     bgCols (array): Nx3 list of colors to not be close to, values in [0..1].
+    alpha (numeric): value between 0..1 to append to each color.
+                     if None: return Nx3
+                     else: return Nx4
   """
   import scipy.spatial.distance as distance, numpy as np
 
@@ -159,7 +164,11 @@ def diffcolors(nCols, bgCols=[1,1,1]):
     idx = np.argmax(minDist)
     colors[i,:] = rgb[idx,:]
     lastLab = np.expand_dims(lab[idx,:], axis=0)
-  return colors
+
+  if alpha is not None:
+    return np.concatenate((colors, alpha*np.ones((nCols,1))), axis=1)
+  else:
+    return colors
 
 def DrawOnImage(img, coords, color):
   """Blends img with color at coords.
@@ -327,8 +336,8 @@ def rgbs2mp4(imgs, outFname, showOutput=False, crf=23, imExt='.jpg'):
     inExt = '.jpg'
     nItems = len(imgs)
     fnames = ['%s/img-%08d%s' % (inDir, i, inExt) for i in range(nItems)]
-    args = [(fnames[i], imgs[i]) for i in range(nItems)]
-    Parfor(cv2.imwrite, args)
+    args = [(imgs[i], fnames[i]) for i in range(nItems)]
+    ParforT(imwrite, args)
 
   # ensure output filename ends with mp4
   outDir, outName, outExt = fileparts(outFname)
@@ -387,7 +396,8 @@ def mat2im(x, vmin=None, vmax=None, cmap=None, lowColor=None, keepAlpha=False):
     im = np.moveaxis(im, source=-1, destination=0)
     im = im[0:3, :]
     im = np.moveaxis(im, source=0, destination=-1)
-  return im
+
+  return (im*255).astype(np.uint8)
 
 def ViewManyImages(imgs, titles=None):
   """Display set of images on a grid
@@ -420,7 +430,7 @@ def ViewManyImages(imgs, titles=None):
 
   return axs
 
-def ViewPlots(idx, fcn, fig=None):
+def ViewPlots(idx, fcn, figure=None):
   """Create figure with keyboard callbacks to iterate over custom display code
 
   Args:
@@ -448,7 +458,8 @@ def ViewPlots(idx, fcn, fig=None):
         repeated taps could cause significant lag.
   """
   import matplotlib.pyplot as plt
-  if fig is None: fig = plt.figure()
+  if figure is None: fig = plt.figure()
+  else: fig = figure
 
   curIdx = idx[0]
   idxMod = 1
@@ -595,7 +606,6 @@ def splabel(img, nSegments, outFname, sigma=1, maxTargets=10, figure=None):
     redraw()
 
   ax = fig.add_subplot(111)
-  # ax.imshow(seg.mark_boundaries(img, slicLabels, mode='thick'))
   ax.imshow(seg.mark_boundaries(img, slicLabels[slicIdx], mode='thick'))
   plt.axis('off')
   fig.canvas.mpl_connect('key_press_event', onKey)
@@ -629,3 +639,226 @@ def imresize(img, size, resample='nearest'):
 
   pilImg = PIL.Image.fromarray(img).resize(sz, method)
   return np.array(pilImg, dtype=img.dtype)
+
+def imwrite(img, fname):
+  """Write RGB/grayscale/high-depth image to file
+
+  Args:
+    img (numpy.ndarray): grayscale (uint8/16) or RGB uint8 image.
+    fname (str): output filename with desired extension
+  """
+  import numpy as np, cv2
+  if img.dtype==np.uint8 and img.ndim==3 and img.shape[2] == 3:
+    img = np.stack((img[:,:,2], img[:,:,1], img[:,:,0]),axis=2)
+  cv2.imwrite(fname, img)
+
+def getrect(ax=None):
+  """ Get rectangle from the user
+
+  Args:
+    ax (matplotlib.axes): Handle to axes, will use gca() if None
+
+  Returns:
+    r (list): Rectangle with x, y, w, h coordinates
+
+  NOTE: This function won't return until the user closes the plot (i.e. after
+        dragging out their rectangle). Hacky, but works for now.
+  """
+  import matplotlib.pyplot as plt
+  import matplotlib.widgets
+  if ax is None: ax = plt.gca()
+
+  r = []; rs = []
+  def onKey(evt): None #holds reference to rs
+  def onEvt(eClick, eRelease):
+    nonlocal r; nonlocal rs;
+    x1, y1 = eClick.xdata, eClick.ydata
+    x2, y2 = eRelease.xdata, eRelease.ydata
+
+    x = min(x1, x2); y = min(y1, y2)
+    w = max(x1, x2) - x; h = max(y1, y2) - y
+    r = (x,y,w,h)
+    rs.set_active(False)
+    print('Close figure to get rectangle')
+  onKey.rs = matplotlib.widgets.RectangleSelector(ax, onEvt, drawtype='box')
+  rs = onKey.rs
+  plt.connect('key_press_event', onKey)
+  plt.show()
+  return r
+
+def rect2mask(rect, shape):
+  """ Convert xywh-rectangle to mask with given (y,x) shape.
+
+  Args:
+    rect (sequence-like): Rectangle with x,y,w,h elements.
+    shape (sequence-like): Desired (nRows, nCols) shape.
+
+  Returns:
+    mask (numpy.ndarray): Boolean mask of rect over shape.
+  """
+  import numpy as np
+
+  mask = np.zeros(shape[0:2], dtype=np.bool)
+  r = np.arange(shape[0]); c = np.arange(shape[1])
+
+  rIdx = np.bitwise_and(r>=rect[1], r<=(rect[1]+rect[3]))
+  cIdx = np.bitwise_and(c>=rect[0], c<=(rect[0]+rect[2]))
+
+  idx = np.ix_(rIdx, cIdx)
+  mask[idx] = True
+
+  return mask
+
+def changem(Z, oldCode, newCode):
+  """ Replace values in array Z, in-place.
+
+  Args:
+    Z (ndarray): Array to replace values in.
+    oldCode (sequence-like): values to be replaced.
+    newCode (sequence-like): values to replace with. Same size as oldCode.
+  """
+  for old, new in zip(oldCode, newCode): Z[Z==old] = new
+
+def load(fname):
+  """ Load a gzipped, pickled, object.
+
+  Args:
+    fname (str): file to load from, will append .picklez if there is no ext.
+  """
+  import gzip, pickle
+  base, name, ext = fileparts(fname)
+  if len(ext)==0: fname = fname + '.picklez'
+  f = gzip.open(fname, 'rb')
+  obj = pickle.load(f)
+  f.close()
+  return obj
+
+def save(fname, obj):
+  """ Save an object as a gzipped pickle.
+
+  Args:
+    fname (str): File to save to, will append .picklez if there is no ext.
+    obj (object): Python object that can be pickled.
+  """
+  import gzip, pickle
+  base, name, ext = fileparts(fname)
+  if len(ext)==0: fname = fname + '.picklez'
+  f = gzip.open(fname, 'wb')
+  pickle.dump(obj, f)
+  f.close()
+
+def ParforT(fcn, items, nWorkers=None, unpack=None):
+  """Runs supplied function for each item in items in parallel via concurrent
+  
+  Args:
+    fcn (function): function to be called.
+    items (list): each element is passed to fcn on some thread.
+                  if type(items[0]) == list or type(items[0]) == tuple:
+                    it is assumed that each inner item is a list and will be
+                    unpacked when passed to fcn (i.e. fcn(*items[0]))
+                  else:
+                    each item is passed directly to fcn (i.e. fcn(items[0]))
+    nWorkers (int): Number of threads to use.
+    unpack (bool): Force unpacking / not unpacking arguments.
+
+  Returns:
+    List containing one entry for each function call, full of Nones if fcn does
+    not return anything. Items can be exceptions if problems were encountered.
+
+  Note:
+    This can be more convenient to use than Parfor because no serialization is
+    required, hence inner functions (and closures) can be used, whereas
+    with Parfor, functions must be serialized for different processes to run
+    them. The drawback of ParforT is that threads are subject to the GIL.
+
+  Example:
+    >>> def f(x): return x**2
+    >>> items = [x for x in range(1000)]
+    >>> squares = ParforT(f, items)
+  """
+  import concurrent.futures, os
+  futures = []
+  res = []
+  with concurrent.futures.ThreadPoolExecutor(max_workers=nWorkers) as pool:
+    if unpack is None:
+      if type(items[0]) == list or type(items[0]) == tuple: unpack = True
+      else: unpack = False
+
+    if unpack:
+      for i in range(len(items)): futures.append(pool.submit(fcn, *items[i]))
+    else:
+      for i in range(len(items)): futures.append(pool.submit(fcn, items[i]))
+
+    for i in range(len(items)):
+      try:
+        data = futures[i].result()
+        res.append(data)
+      except Exception as exc:
+        res.append(exc)
+
+  for i in range(len(items)):
+    if type(res[i]) is Exception:
+      print('Warning: exceptions detected in ParforT results')
+      break
+
+  return res
+
+def TextOnImage(img, text, loc=(10,10), fontsize=24, color=(0,0,0,1), bg=None):
+  """Draw text on an rgb image with basic multiline support.
+
+  Args:
+    img (numpy.ndarray): grayscale or color uint8 or uin16 image.
+    text (str): text to rasterize.
+    loc (tuple): y,x location of text
+    fontsize (int): font size in points
+    color (tuple): rgb[a] in range 0..1
+    bg (tuple): None or rgb[a] in range 0..1
+
+  Returns:
+    imgT (ndarray): image with text on it
+    mask (ndarray): image mask where text / background is drawn
+  """
+  import PIL, PIL.ImageFont, PIL.ImageDraw, numpy as np
+  if len(color)==3: color = (color[0], color[1], color[2], 1)
+
+  fontpath = '%s/monaco.ttf' % fileparts(__file__)[0]
+  font = PIL.ImageFont.truetype(fontpath, fontsize)
+  
+  pilImg = PIL.Image.fromarray(img)
+  ctx = PIL.ImageDraw.Draw(pilImg)
+  ctx.text((loc[1], loc[0]), text, (color[0]*255, color[1]*255, color[2]*255,
+    color[3]*255), font=font)
+  del ctx
+
+  # basic handling of newlines, though best to just not use
+  numNewlines = text.count('\n')
+  if numNewlines>0:
+    from functools import reduce
+    lines = text.split('\n')
+    longest = reduce(lambda x, y: max(x,y), map(len, lines))
+    for i in range(len(lines)):
+      if len(lines[i])==longest:
+        fontsz = font.getsize(lines[i])
+        break
+  else:
+    fontsz = font.getsize(text)
+
+  mask = np.zeros(img.shape[0:2], dtype=np.bool)
+  yrng = np.arange(loc[0], (loc[0]+fontsz[1])*(numNewlines+1))
+  xrng = np.arange(loc[1], loc[1]+fontsz[0])
+
+  try:
+    mask[np.ix_(yrng, xrng)] = True
+  except Exception as exc:
+    print('Font will not fit, returning original image and 0 mask')
+    return img, mask
+
+  if loc[0]+fontsz[1] > img.shape[0]:
+    print('Warning: Font exceeds image height')
+  if loc[1]+fontsz[0] > img.shape[1]:
+    print('Warning: Font exceeds image width')
+
+  imgT = np.array(pilImg, dtype=img.dtype)
+  if bg is not None: imgT = DrawOnImage(imgT, mask.nonzero(), bg)
+
+  return imgT, mask
