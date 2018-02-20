@@ -55,38 +55,7 @@ def fileparts(p):
     name, ext = (fullname[:ext], fullname[ext:])
     return base, name, ext
 
-def Parfor(fcn, items, nWorkers=None, unpack=None):
-  """Runs supplied function for each item in items in parallel via joblib.
-  
-  Args:
-    fcn (function): function to be called.
-    items (list): each element is passed to fcn on some thread.
-                  if type(items[0]) == list or type(items[0]) == tuple:
-                    it is assumed that each inner item is a list and will be
-                    unpacked when passed to fcn (i.e. fcn(*items[0]))
-                  else:
-                    each item is passed directly to fcn (i.e. fcn(items[0]))
-    nWorkers (int): Number of processes to use, defaults to all
-    unpack (bool): Force unpacking / not unpacking arguments.
-
-  Returns:
-    List containing one entry for each function call, full of Nones if fcn does
-    not return anything.
-
-  Example:
-    >>> def f(x): return x**2
-    >>> items = [x for x in range(1000)]
-    >>> squares = Parfor(f, items)
-  """
-  from joblib import Parallel, delayed
-  if unpack is None:
-    if type(items[0]) == list or type(items[0]) == tuple: unpack = True
-    else: unpack = False
-  if nWorkers is None: nWorkers = -1
-  if unpack: return Parallel(n_jobs=nWorkers)(delayed(fcn)(*i) for i in items)
-  else: return Parallel(n_jobs=nWorkers)(delayed(fcn)(i) for i in items)
-
-def rgb2lab(rgb):
+def rgb2lab(rgb, norm0255=False):
   """Convert RGB to CIELAB colorspace.
 
   Args:
@@ -108,6 +77,9 @@ def rgb2lab(rgb):
   nEl = rgb.size // 3
   rgbIm = rgb.reshape((nEl, 1, 3)).astype('float32')
   labIm = cv2.cvtColor(rgbIm, cv2.COLOR_RGB2LAB)
+  if norm0255:
+    labIm[:,:,0] *= (255.0 / 100.)
+    labIm[:,:,1:3] += 128.0
   return labIm.reshape((nEl, 3))
 
 def lab2rgb(lab):
@@ -186,7 +158,6 @@ def DrawOnImage(img, coords, color):
     >>> imWithTransparentRedCircle = DrawOnImage(im, coords, color)
   """
   import numpy as np
-
   # get transparency
   if len(color)==3: alpha = 1
   elif len(color)==4: alpha = color[3]
@@ -200,8 +171,17 @@ def DrawOnImage(img, coords, color):
   
   # blend images
   im = img.copy()
-  im[coords[0],coords[1],:] = (1-alpha)*img[coords[0],coords[1],:] + \
-    alpha*colorIm[coords[0],coords[1],:]
+  cords = []
+  cords.append(np.maximum(0, np.minimum(im.shape[0]-1, np.array(coords[0]))))
+  cords.append(np.maximum(0, np.minimum(im.shape[1]-1, np.array(coords[1]))))
+  # coords[0] = np.maximum(0, np.minimum(im.shape[0], np.array(coords[0])))
+  # coords[1] = np.maximum(0, np.minimum(im.shape[1], np.array(coords[1])))
+
+  im[cords[0],cords[1],:] = (1-alpha)*img[cords[0],cords[1],:] + \
+    alpha*colorIm[cords[0],cords[1],:]
+
+  # im[coords[0],coords[1],:] = (1-alpha)*img[coords[0],coords[1],:] + \
+  #   alpha*colorIm[coords[0],coords[1],:]
   return im
 
 def GetScreenResolution():
@@ -306,10 +286,11 @@ def imread(fname):
   """
   import cv2
   im = cv2.imread(fname, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
-  if im.ndim==3: im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+  # if im.ndim==3: im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+  if im.ndim==3: im = im[:,:,[2, 1, 0]]
   return im
 
-def rgbs2mp4(imgs, outFname, showOutput=False, crf=23, imExt='.jpg'):
+def rgbs2mp4(imgs, outFname, showOutput=False, crf=23, imExt='.jpg', fps=25):
   """pack RGB images into an mp4 using external call to ffmpeg.
 
   Args:
@@ -344,8 +325,10 @@ def rgbs2mp4(imgs, outFname, showOutput=False, crf=23, imExt='.jpg'):
   if len(outExt)==0: outFname = outFname + '.mp4'
 
   # format command
-  cmd = "ffmpeg -y -pattern_type glob -i '%s/*%s' -c:v libx264 -crf %d -pix_fmt yuv420p %s"
-  cmdStr = cmd % (inDir, inExt, crf, outFname)
+  # cmd = "ffmpeg -y -pattern_type glob -i '%s/*%s' -c:v libx264 -crf %d -pix_fmt yuv420p %s"
+  cmd = "ffmpeg -framerate %d -y -pattern_type glob -i '%s/*%s' -c:v libx264 -crf %d -pix_fmt yuv420p %s"
+  # cmdStr = cmd % (inDir, inExt, crf, outFname)
+  cmdStr = cmd % (fps, inDir, inExt, crf, outFname)
 
   # run command
   stderrPipe = None if showOutput else subprocess.PIPE
@@ -475,6 +458,7 @@ def ViewPlots(idx, fcn, figure=None):
     elif event.key.find('up') != -1: idxMod = int(max(1, idxMod * 2))
     elif event.key.find('down') != -1: idxMod = int(max(1, idxMod / 2))
     kwargs = {'idxMod': idxMod, 'figure': fig}
+    fig.clf()
     if passKwargs: fcn(curIdx, **kwargs)
     else: fcn(curIdx)
     fig.canvas.draw()
@@ -627,7 +611,7 @@ def imresize(img, size, resample='nearest'):
     imgR (numpy.ndarray): resized image with the same datatype
   """
   import PIL.Image, numpy as np
-  if type(size) in [list, tuple]: sz = (size[1], size[0])
+  if type(size) in [list, tuple, np.ndarray]: sz = (size[1], size[0])
   else: sz = (int(img.shape[1]*size), int(img.shape[0]*size))
 
   if resample=='nearest': method = PIL.Image.NEAREST
@@ -719,35 +703,87 @@ def changem(Z, oldCode, newCode):
   """
   for old, new in zip(oldCode, newCode): Z[Z==old] = new
 
-def load(fname):
+def load(fname, msgpack=False):
   """ Load a gzipped, pickled, object.
 
   Args:
-    fname (str): file to load from, will append .picklez if there is no ext.
+    fname (str): file to load from, will append .gz if there is no ext.
+    msgpack (bool): if True, decode with msgpack, not pickle
   """
-  import gzip, pickle
+  import gzip
   base, name, ext = fileparts(fname)
-  if len(ext)==0: fname = fname + '.picklez'
+  if ext != '.picklez' and ext != '.gz': fname += '.gz'
   f = gzip.open(fname, 'rb')
-  obj = pickle.load(f)
+  if msgpack:
+    import msgpack, msgpack_numpy as m
+    m.patch()
+    packedBytes = f.read()
+    obj = m.unpackb(packedBytes)
+  else:
+    import pickle
+    obj = pickle.load(f)
   f.close()
   return obj
 
-def save(fname, obj):
-  """ Save an object as a gzipped pickle.
+# def load(fname):
+#   """ Load a gzipped, pickled, object.
+#
+#   Args:
+#     fname (str): file to load from, will append .picklez if there is no ext.
+#   """
+#   import gzip, pickle
+#   base, name, ext = fileparts(fname)
+#   if len(ext)==0: fname = fname + '.picklez'
+#   f = gzip.open(fname, 'rb')
+#   obj = pickle.load(f)
+#   f.close()
+#   return obj
+
+def save(fname, obj, level=6, msgpack=False):
+  """ Save an object as a pickle, then parallel-gzip with pigz.
+
+  WARNING: You must have pigz installed and callable from the command-line.
 
   Args:
-    fname (str): File to save to, will append .picklez if there is no ext.
+    fname (str): File to save to then overwrite, appending .gz.
     obj (object): Python object that can be pickled.
+    level (int): 0..9, 9 is higher compression, 0 is lower.
+    msgpack (bool): if True, use msgpack, else use pickle.
   """
-  import gzip, pickle
-  base, name, ext = fileparts(fname)
-  if len(ext)==0: fname = fname + '.picklez'
-  f = gzip.open(fname, 'wb')
-  pickle.dump(obj, f)
+  import subprocess, os
+  level = int(max(1, min(9, level)))
+  f = open(fname, 'wb')
+  if msgpack:
+    import msgpack, msgpack_numpy as m
+    m.patch()
+    packedBytes = m.packb(obj)
+    f.write(packedBytes)
+  else:
+    import pickle
+    pickle.dump(obj, f, protocol=4)
   f.close()
+  parts = fileparts(fname)
 
-def ParforT(fcn, items, nWorkers=None, unpack=None):
+  if parts[2].lower() == '.gz':
+    os.rename(fname, ''.join(parts[:2]))
+    fname = ''.join(parts[:2])
+  subprocess.call(('pigz', '-f', '-%d' % level, fname))
+
+# def save(fname, obj):
+#   """ Save an object as a gzipped pickle.
+#
+#   Args:
+#     fname (str): File to save to, will append .picklez if there is no ext.
+#     obj (object): Python object that can be pickled.
+#   """
+#   import gzip, pickle
+#   base, name, ext = fileparts(fname)
+#   if len(ext)==0: fname = fname + '.picklez'
+#   f = gzip.open(fname, 'wb', compresslevel=3)
+#   pickle.dump(obj, f)
+#   f.close()
+
+def ParforT(fcn, items, nWorkers=None, unpack=None, returnExc=False, **kwargs):
   """Runs supplied function for each item in items in parallel via concurrent
   
   Args:
@@ -777,6 +813,8 @@ def ParforT(fcn, items, nWorkers=None, unpack=None):
     >>> squares = ParforT(f, items)
   """
   import concurrent.futures, os
+  from tqdm import tqdm
+
   futures = []
   res = []
   with concurrent.futures.ThreadPoolExecutor(max_workers=nWorkers) as pool:
@@ -789,19 +827,72 @@ def ParforT(fcn, items, nWorkers=None, unpack=None):
     else:
       for i in range(len(items)): futures.append(pool.submit(fcn, items[i]))
 
+    # progress bar
+    if kwargs.get('showProgress', True):
+      pbKwargs = {'total': len(futures), 'unit': 'it', 'unit_scale': True,
+        'leave': True}
+      for f in tqdm(concurrent.futures.as_completed(futures), **pbKwargs): pass
+
+    excIdx = []
     for i in range(len(items)):
       try:
         data = futures[i].result()
         res.append(data)
       except Exception as exc:
         res.append(exc)
+        excIdx.append(i)
 
-  for i in range(len(items)):
-    if type(res[i]) is Exception:
-      print('Warning: exceptions detected in ParforT results')
-      break
+  if len(excIdx) > 0:
+    print('WARNING: Exception in one or more workers!')
+    raise res[excIdx[0]]
 
-  return res
+  if returnExc: return res, excIdx
+  else: return res
+
+def For(fcn, items, nWorkers=None, unpack=None, **kwargs):
+  """Runs supplied function for each item in items in parallel via concurrent
+  
+  Args:
+    fcn (function): function to be called.
+    items (list): each element is passed to fcn on some thread.
+                  if type(items[0]) == list or type(items[0]) == tuple:
+                    it is assumed that each inner item is a list and will be
+                    unpacked when passed to fcn (i.e. fcn(*items[0]))
+                  else:
+                    each item is passed directly to fcn (i.e. fcn(items[0]))
+    nWorkers (int): Dummy parameter for compatibility with Parfor, ParforT
+    unpack (bool): Force unpacking / not unpacking arguments.
+
+  Returns:
+    List containing one entry for each function call, full of Nones if fcn does
+    not return anything. Items can be exceptions if problems were encountered.
+
+  Note:
+    This is most useful for diagnosing problems with Parfor / ParforT .
+
+  Example:
+    >>> def f(x): return x**2
+    >>> items = [x for x in range(1000)]
+    >>> squares = For(f, items)
+  """
+  import progressbar
+  if unpack is None:
+    if type(items[0]) == list or type(items[0]) == tuple: unpack = True
+    else: unpack = False
+  if nWorkers is None: nWorkers = -1
+  if kwargs.get('showProgress', True):
+    res = []
+    bar = progressbar.ProgressBar()
+    if unpack:
+      for i in bar(range(len(items))):
+        res.append(fcn(*items[i]))
+    else:
+      for i in bar(range(len(items))):
+        res.append(fcn(items[i]))
+    return res
+  else:
+    if unpack: return [fcn(*i) for i in items]
+    else: return [fcn(i) for i in items]
 
 def TextOnImage(img, text, loc=(10,10), fontsize=24, color=(0,0,0,1), bg=None):
   """Draw text on an rgb image with basic multiline support.
@@ -826,8 +917,9 @@ def TextOnImage(img, text, loc=(10,10), fontsize=24, color=(0,0,0,1), bg=None):
   
   pilImg = PIL.Image.fromarray(img)
   ctx = PIL.ImageDraw.Draw(pilImg)
-  ctx.text((loc[1], loc[0]), text, (color[0]*255, color[1]*255, color[2]*255,
-    color[3]*255), font=font)
+  color = [int(x*255) for x in color]
+  ctx.text((loc[1], loc[0]), text, (color[0], color[1], color[2],
+    color[3]), font=font)
   del ctx
 
   # basic handling of newlines, though best to just not use
@@ -862,3 +954,328 @@ def TextOnImage(img, text, loc=(10,10), fontsize=24, color=(0,0,0,1), bg=None):
   if bg is not None: imgT = DrawOnImage(imgT, mask.nonzero(), bg)
 
   return imgT, mask
+
+def savepcd(pts, shape, fname):
+  """Save array of points into .pcd format.
+
+  Args:
+    pts (ndarray): Nx3 (xyz) or Nx6 (xyzrgb) array, rgb \in [0, 255]
+    shape (tuple): Original image shape in pixels
+    fname (str): name of file to save out to, should end in .pcd
+  """
+  from io import StringIO, BytesIO
+  import numpy as np
+
+  def packRgb(rgb):
+    # pack RGB color to float
+    rgb = rgb.astype(np.uint32)
+    rgb = np.array((rgb[:, 0] << 16) | (rgb[:, 1] << 8) | (rgb[:, 2] << 0),
+      dtype=np.uint32)
+    rgb.dtype = np.float32
+    return rgb
+
+  if pts.shape[1] == 3:
+    fields = 'x y z'
+    size = '4 4 4'
+    count = '1 1 1'
+    types = 'F F F'
+  elif pts.shape[1] == 6:
+    pts = pts.astype(np.float32)
+    pts = np.concatenate((pts[:,0:3], packRgb(pts[:,3:6])[:,np.newaxis]),
+      axis=1)
+    fields = 'x y z rgb'
+    size = '4 4 4 4'
+    count = '1 1 1 1'
+    types = 'F F F F'
+
+  with open(fname, 'w') as f:
+    # header
+    print('VERSION .7', file=f)
+    print('FIELDS %s' % fields, file=f)
+    print('SIZE %s' % size, file=f)
+    print('TYPE %s' % types, file=f)
+    print('COUNT %s' % count, file=f)
+    print('WIDTH %d' % shape[1], file=f)
+    print('HEIGHT %d' % shape[0], file=f)
+    print('VIEWPOINT 0 0 0 1 0 0 0', file=f)
+    print('POINTS %d' % pts.shape[0], file=f)
+    print('DATA ascii', file=f)
+
+    import tempfile
+    fd, name = tempfile.mkstemp(suffix='.txt', text=True)
+    np.savetxt(name, pts)
+    fd = open(name, 'r')
+    print(fd.read(), file=f, end='')
+    fd.close()
+
+def mrdivide(B, A):
+  """Solve xA = B for x. Similar to Matlab's B/A"""
+  import numpy as np
+  return np.linalg.solve(A.T, B.T)
+
+def RectCoords(R, fill=False, shape=None):
+  """ Get rectangle row, column coordinates for drawing in an image.
+
+  Args:
+    R: 4-vector of xywh.
+    fill: boolean, true for inside of rect, false for perimeter.
+    shape: image shape to be confined to.
+
+  Returns:
+    (rr, cc): row, column coordinates
+
+  Related:
+    DrawOnImage
+  """
+  import skimage.draw as draw
+  r = ( R[1], R[1]+R[3], R[1]+R[3], R[1] )
+  c = ( R[0], R[0], R[0]+R[2], R[0]+R[2] )
+  if fill: return draw.polygon(r,c,shape)
+  else: return draw.polygon_perimeter(r,c,shape)
+
+def asShape(x, shape):
+  """ Return copy of array x with given shape.
+
+  INPUTS
+    x (ndarray): array of arbitrary shape
+    shape (tuple): new shape
+  
+  OUTPUTS
+    y (ndarray): copy of x with shape shape.
+  """
+  y = x.copy()
+  y.shape = shape
+  return y
+
+def imgs(x, shape=None, plotShape=None):
+  """ Show each slice of array as an image in its own subplot, assumes axis 0. """
+  import matplotlib.pyplot as plt, numpy as np
+
+  nImgs = x.shape[0]
+  if plotShape is None:
+    nR = np.ceil(np.sqrt(nImgs))
+    nC = nR
+  else:
+    nR, nC = plotShape
+
+  for i in range(nImgs):
+    plt.subplot(nR, nC, i+1)
+    im = x[i] if shape is None else asShape(x[i], shape)
+    plt.imshow(im)
+    plt.xticks([])
+    plt.yticks([])
+
+def rect2slice(rect, shape):
+  """ Get bounds-checked y,x slices from an xywh-rectangle.
+
+  Note: Slices will generate views rather than copies of ndarrays.
+
+  INPUTS
+    rect (tuple): (4,) xywh rectangle, arbitrary type.
+    shape (tuple): (2,) (rows, columns) of the desired bounds.
+
+  OUTPUTS
+    rr (slice): slice for rows
+    cc (slice): slice for columns
+  """
+  import numpy as np
+  r = (np.max((0, int(rect[1]))), np.min((shape[0], int(rect[1]+rect[3]))))
+  c = (np.max((0, int(rect[0]))), np.min((shape[1], int(rect[0]+rect[2]))))
+  rr = slice(r[0], r[1], 1)
+  cc = slice(c[0], c[1], 1)
+  return (rr,cc)
+
+def roc(yhat, y, show=False):
+  import numpy as np
+  import matplotlib.pyplot as plt
+
+  # tprs = [0.]
+  # fprs = [0.]
+  tprs = []; fprs = []
+
+  for tau in np.arange(0,1.05,.05):
+    tp = np.sum(np.logical_and(yhat>=tau, y))
+    fp = np.sum(np.logical_and(yhat>=tau, ~y))
+    fn = np.sum(np.logical_and(yhat<tau, y))
+    tn = np.sum(np.logical_and(yhat<tau, ~y))
+
+    tprs.append(tp / (tp+fn))
+    fprs.append(fp / (fp+tn))
+
+  # tprs.append(1.)
+  # fprs.append(1.)
+  
+  print(np.trapz(tprs, fprs))
+
+  plt.plot(fprs, tprs)
+  plt.show()
+
+def savepts(pts, fname):
+  """Save array of points into .txt format.
+
+  Args:
+    pts (ndarray): Nx7 (xyzrgba) array, rgb \in [0, 1] 
+    fname (str): name of file to save out to, should end in .pcd
+  """
+  import tempfile, numpy as np
+  with open(fname, 'w') as f:
+    fd, name = tempfile.mkstemp(suffix='.txt', text=True)
+    np.savetxt(name, pts)
+    fd = open(name, 'r')
+    print('%d' % pts.shape[0], file=f)
+    print(fd.read(), file=f, end='')
+    fd.close()
+
+def imreadStack(paths, parallel=True):
+  # read first image to get shape and type
+  import numpy as np
+  im = imread(paths[0])
+  imgs = np.zeros((len(paths),) + im.shape, dtype=im.dtype)
+  def worker(idx): imgs[idx] = imread(paths[idx])
+  _, excIdx = ParforT(worker, range(len(imgs)), returnExc=True)
+  return imgs, excIdx
+
+def Parfor(fcn, items, nWorkers=None, unpack=None, returnExc=False, **kwargs):
+  """Runs supplied function for each item in items in parallel (over processes)
+  
+  Args:
+    fcn (function): function to be called.
+    items (list): each element is passed to fcn on some process.
+                  if type(items[0]) == list or type(items[0]) == tuple:
+                    it is assumed that each inner item is a list and will be
+                    unpacked when passed to fcn (i.e. fcn(*items[0]))
+                  else:
+                    each item is passed directly to fcn (i.e. fcn(items[0]))
+    nWorkers (int): Number of threads to use.
+    unpack (bool): Force unpacking / not unpacking arguments.
+    returnExc (bool): Return tuple of (results, exceptions)
+  
+  Keyword Args:
+    showProgress (bool): Print a progress bar to console. Default True.
+
+  Returns:
+    List containing one entry for each function call, full of Nones if fcn does
+    not return anything. Items can be exceptions if problems were encountered.
+
+  Example:
+    >>> def f(x): return x**2
+    >>> items = [x for x in range(1000)]
+    >>> squares = Parfor2(f, items)
+  """
+  import concurrent.futures, os
+  from tqdm import tqdm
+
+  futures = []
+  res = []
+  with concurrent.futures.ProcessPoolExecutor(max_workers=nWorkers) as pool:
+    if unpack is None:
+      if type(items[0]) == list or type(items[0]) == tuple: unpack = True
+      else: unpack = False
+
+    print('submitting jobs')
+    if unpack:
+      for i in range(len(items)): futures.append(pool.submit(fcn, *items[i]))
+    else:
+      # futures = [pool.submit(fcn, items[i]) for i in range(len(items))]
+      for i in range(len(items)): futures.append(pool.submit(fcn, items[i]))
+    
+    print('jobs submitted')
+
+    # progress bar
+    if kwargs.get('showProgress', True):
+      pbKwargs = {'total': len(futures), 'unit': 'it', 'unit_scale': True,
+        'leave': True, 'miniters': 1}
+      for f in tqdm(concurrent.futures.as_completed(futures), **pbKwargs): pass
+
+    # exceptions
+    excIdx = []
+    for i in range(len(items)):
+      try:
+        data = futures[i].result()
+        res.append(data)
+      except Exception as exc:
+        res.append(exc)
+        excIdx.append(i)
+
+  for i in range(len(items)):
+    if type(res[i]) is Exception:
+      print('Warning: exceptions detected in ParforT results')
+      break
+
+  if returnExc: return res, excIdx
+  else: return res
+
+def rgb2labImg(rgb, norm0255=True):
+  """ Convert RGB image to 0..255 normalized CIELAB colorspace.
+
+  Args:
+    rgb (array): MxNx3 array of colors in 0..255 range.
+  """
+  import skimage.color as sc, numpy as np
+  lab = sc.rgb2lab(rgb)
+  if norm0255:
+    lab[:,:,0] *= 255/100.
+    lab[:,:,1:] += 128
+  lab = lab.astype(np.uint8)
+  return lab
+
+def lab2rgbImg(lab, norm0255=True):
+  """ Convert Lab image to uint8 0..255 RGB.
+
+  Args:
+    lab (array): MxNx3 array of lab colors. Treated as 0..255 if dtype if uint8.
+    norm0255 (bool): if True, output is made uint8 0..255, else output is 0..1
+
+  Returns:
+    rgb (array): MxNx3 array of rgb colors.
+  """
+  import skimage.color as sc, numpy as np
+  if lab.dtype == np.uint8:
+    labf = lab.astype(np.double)
+    labf[:,:,0] /= 255/100.
+    labf[:,:,1:] -= 128
+  else:
+    labf = lab
+  rgb = sc.lab2rgb(labf)
+  return rgb
+
+def ParforD(fcn, items, nWorkers=None, unpack=None, **kwargs):
+  """Runs supplied function for each item in items in parallel via distex 
+  
+  Args:
+    fcn (function): function to be called.
+    items (list): each element is passed to fcn on some thread.
+                  if type(items[0]) == list or type(items[0]) == tuple:
+                    it is assumed that each inner item is a list and will be
+                    unpacked when passed to fcn (i.e. fcn(*items[0]))
+                  else:
+                    each item is passed directly to fcn (i.e. fcn(items[0]))
+    nWorkers (int): Number of threads to use. None for default number of CPUs.
+    unpack (bool): Force unpacking / not unpacking arguments.
+
+  Returns:
+    List containing one entry for each function call, full of Nones if fcn does
+    not return anything. Items can be exceptions if problems were encountered.
+
+  Note:
+    This runs separate processes; fcn must have all imports within it and cannot
+    be a lambda.
+
+  Example:
+    >>> def f(x): return x**2
+    >>> items = [x for x in range(1000)]
+    >>> squares = ParforD(f, items)
+  """
+  import distex, os
+  from tqdm import tqdm
+
+  if unpack is None:
+    if type(items[0]) == list or type(items[0]) == tuple: unpack = True
+    else: unpack = False
+
+  pool = distex.Pool(num_workers=nWorkers)
+  if kwargs.get('showProgress', True):
+    res = list(tqdm(pool.map(fcn, items, star=unpack), total=len(items)))
+  else:
+    res = list(pool.map(fcn, items, star=unpack))
+  return res

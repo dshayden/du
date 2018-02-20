@@ -22,7 +22,7 @@ setup(name='du',
   packages=['du'],
   install_requires=[
     'joblib', 'numpy', 'opencv-python>=3.1', 'scipy', 'scikit-image',
-    'matplotlib', 'screeninfo'
+    'matplotlib', 'screeninfo', 'distex', 'tqdm', 'progressbar', 'PIL'
   ],
   test_suite='nose.collector',
   tests_require=['nose', 'nose-cover3'],
