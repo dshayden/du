@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.interpolate
 
 def catrnd(p):
   """ Sample categorical random variables.
@@ -108,3 +109,63 @@ def logmvtpdf(X, mu, Sigma, v):
   term1 = -(0.5 * (v+D)) * (1 + (1/v)*mahal)
   
   return logZ + term1
+
+def mvtrnd(m, S, v, size=1):
+  """ Sample multivariate-t RV.
+
+  INPUT
+    m (ndarray, [D,]): mean
+    S (ndarray, [D, D]): covariance
+    v (int): degrees of freedom
+    size (int): number of samples
+  """
+  D = m.shape[0]
+  g = np.tile(np.random.gamma(v/2., 2./v, size), (D,1)).T
+  Z = np.random.multivariate_normal(np.zeros(D), S, size)
+  return m + Z/np.sqrt(g)
+
+def MH(x0, logp, q, logq=None, **kwargs):
+  # Run Metropolis-Hastings with initial point x0
+  # log posterior logp
+  # transition q(x | xPrev)
+  # log transition probability, None if symmetric
+  nS = kwargs.get('nS', 1000)
+  x0 = np.asarray(x0)
+  
+  ll = np.zeros(nS+1)
+  accept = np.zeros(nS+1)
+  xs = np.tile(x0, np.concatenate(([nS+1,], np.ones(x0.ndim, dtype=np.int))))
+  ll[0] = logp(x0)
+
+  us = np.random.rand(nS+1) # sample all random in advance
+  for s in range(1, nS+1):
+    # sample xp
+    xp = q(xs[s-1])
+
+    # evaluate log posterior under xp   
+    log_xp = logp(xp)
+    
+    # evaluate log posterior under previous sample
+    log_x = ll[s-1]
+
+    # evaluate hastings ratio if logq is not None
+    if logq is None:
+      logq_xp = 1
+      logq_x = 1
+    else:
+      logq_xp = logq(xp, xs[s-1])
+      logq_x = logq(xs[s-1], xp)
+
+    # sample uniform, accept/reject
+    ratio = (log_xp + logq_x) - (log_x + logq_xp)
+    if ratio >= 0: expRatio = 1.0
+    else: expRatio = np.exp(ratio)
+    accept[s] = us[s] < min(1.0, expRatio)
+    if accept[s]:
+      xs[s] = xp
+      ll[s] = log_xp
+    else:
+      xs[s] = xs[s-1]
+      ll[s] = log_x
+
+  return xs[1:], ll[1:], accept[1:]

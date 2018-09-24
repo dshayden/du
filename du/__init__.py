@@ -104,7 +104,7 @@ def lab2rgb(lab):
   rgbIm = cv2.cvtColor(labIm, cv2.COLOR_LAB2RGB)
   return rgbIm.reshape((nEl, 3))
 
-def diffcolors(nCols, bgCols=[1,1,1], alpha=None):
+def diffcolors(nCols, bgCols=[1,1,1], alpha=None, asFloat=True):
   """Return Nx3 or Nx4 array of perceptually-different colors in [0..1] rgb.
 
   Args:
@@ -113,6 +113,7 @@ def diffcolors(nCols, bgCols=[1,1,1], alpha=None):
     alpha (numeric): value between 0..1 to append to each color.
                      if None: return Nx3
                      else: return Nx4
+    asFloat (bool): if True, return as float 0..1, else return uint8 as 0..255
   """
   import scipy.spatial.distance as distance, numpy as np
 
@@ -138,9 +139,11 @@ def diffcolors(nCols, bgCols=[1,1,1], alpha=None):
     lastLab = np.expand_dims(lab[idx,:], axis=0)
 
   if alpha is not None:
-    return np.concatenate((colors, alpha*np.ones((nCols,1))), axis=1)
-  else:
-    return colors
+    colors = np.concatenate((colors, alpha*np.ones((nCols,1))), axis=1)
+  if not asFloat:
+    colors = (255*colors).astype(np.uint8)
+
+  return colors
 
 def DrawOnImage(img, coords, color):
   """Blends img with color at coords.
@@ -694,14 +697,31 @@ def rect2mask(rect, shape):
   return mask
 
 def changem(Z, oldCode, newCode):
-  """ Replace values in array Z, in-place.
+  """
 
-  Args:
+  INPUT
     Z (ndarray): Array to replace values in.
     oldCode (sequence-like): values to be replaced.
     newCode (sequence-like): values to replace with. Same size as oldCode.
+
+  OUPTUT
+    newZ (ndarray): Array with replaced values.
   """
-  for old, new in zip(oldCode, newCode): Z[Z==old] = new
+  import numpy as np
+  Z = np.asarray(Z)
+  newZ = Z.copy()
+  for old, new in zip(oldCode, newCode): newZ[Z==old] = new
+  return newZ
+
+# def changem(Z, oldCode, newCode):
+#   """ Replace values in array Z, in-place.
+#
+#   Args:
+#     Z (ndarray): Array to replace values in.
+#     oldCode (sequence-like): values to be replaced.
+#     newCode (sequence-like): values to replace with. Same size as oldCode.
+#   """
+#   for old, new in zip(oldCode, newCode): Z[Z==old] = new
 
 def load(fname, msgpack=False):
   """ Load a gzipped, pickled, object.
@@ -1172,15 +1192,12 @@ def Parfor(fcn, items, nWorkers=None, unpack=None, returnExc=False, **kwargs):
       if type(items[0]) == list or type(items[0]) == tuple: unpack = True
       else: unpack = False
 
-    print('submitting jobs')
     if unpack:
       for i in range(len(items)): futures.append(pool.submit(fcn, *items[i]))
     else:
       # futures = [pool.submit(fcn, items[i]) for i in range(len(items))]
       for i in range(len(items)): futures.append(pool.submit(fcn, items[i]))
     
-    print('jobs submitted')
-
     # progress bar
     if kwargs.get('showProgress', True):
       pbKwargs = {'total': len(futures), 'unit': 'it', 'unit_scale': True,
@@ -1230,13 +1247,19 @@ def lab2rgbImg(lab, norm0255=True):
     rgb (array): MxNx3 array of rgb colors.
   """
   import skimage.color as sc, numpy as np
-  if lab.dtype == np.uint8:
-    labf = lab.astype(np.double)
+  labf = lab.copy()
+  if labf.dtype == np.uint8:
+    labf = labf.astype(np.double)
     labf[:,:,0] /= 255/100.
     labf[:,:,1:] -= 128
-  else:
-    labf = lab
   rgb = sc.lab2rgb(labf)
+  # if lab.dtype == np.uint8:
+  #   labf = lab.astype(np.double)
+  #   labf[:,:,0] /= 255/100.
+  #   labf[:,:,1:] -= 128
+  # else:
+  #   labf = lab
+  # rgb = sc.lab2rgb(labf)
   return rgb
 
 def ParforD(fcn, items, nWorkers=None, unpack=None, **kwargs):
@@ -1273,9 +1296,84 @@ def ParforD(fcn, items, nWorkers=None, unpack=None, **kwargs):
     if type(items[0]) == list or type(items[0]) == tuple: unpack = True
     else: unpack = False
 
-  pool = distex.Pool(num_workers=nWorkers)
+  pool = distex.Pool(num_workers=nWorkers, data_pickle=distex.PickleType.dill)
   if kwargs.get('showProgress', True):
     res = list(tqdm(pool.map(fcn, items, star=unpack), total=len(items)))
   else:
     res = list(pool.map(fcn, items, star=unpack))
+
+  pool.shutdown()
   return res
+
+def eigh_proper_all(sigma):
+  """ Get all 2^{D-1} eigendecompositions UDU^T s.t. det(U) = 1
+
+  INPUT
+    sigma (ndarray, [D,D]): positive definite matrix
+
+  OUTPUT
+    sigD (ndarray, [D,]): eigenvalues
+    sigU (ndarray, [2^{D-1}, D, D]): possible proper rotations
+  """
+  import numpy as np, itertools
+  
+  sigD, sigU = np.linalg.eigh(sigma)
+  D = sigma.shape[0]
+
+  # combinations
+  combs = []
+  for t in range(D+1):
+    combs = combs + list(itertools.combinations(range(D), t))
+
+  possible = np.zeros((2**(D-1), D, D))
+  cnt = 0
+  for c in combs:
+    sU = sigU.copy()
+    sU[:,c] = -sU[:,c]
+    if np.linalg.det(sU) < 0: continue
+    UDU = sU.dot(np.diag(sigD)).dot(sU.T)
+    norm = np.linalg.norm( UDU - sigma )
+    assert norm < 1e-8, 'bad norm'
+    possible[cnt] = sU
+    cnt += 1
+  sigU = possible
+  return sigD, sigU 
+
+def mu_sig(ys):
+  """ Efficiently compute mu, sigma of ys with shape (T, N, D) or (N, D)
+
+  if ndim(ys)==3 then efficiently compute mean and covariance along first axis
+  else return efficient mean and covariance along first axis
+
+  INPUT
+    ys (ndarray, [N,D] or [T,N,D]): N obs, D dimension, (optional) T timestep
+
+  OUTPUT
+    mu (ndarray, [D,] or [T,D]): mu at each time
+    sig (ndarray, [D,D] or [T,D,D]): sig at each time
+  """
+  import numpy as np
+  if ys.ndim==2: return np.mean(ys, axis=0), np.cov(ys.T)
+  assert ys.ndim==3, 'ys must be dimension 2 or 3'
+  N = ys.shape[1]
+  mu = np.mean(ys, axis=1)
+  yctr = ys - mu[:,np.newaxis,:]
+  sig = np.einsum('tij,tik->tjk', yctr, yctr) / (N-1)
+  return mu, sig
+
+def scatter_matrix(ys, center=True):
+  """ compute centered or uncentered data scatter matrix.
+
+  INPUT
+    ys (ndarray, [N x D]): N obs, D dimension
+    center (bool): center the data
+
+  OUTPUT
+    sc (ndarray, [D,D]): \sum_n z[n] z[n].T where z[n] =
+                           ys[n] - np.mean(ys,axis=0) if center=True
+                           ys[n] otherwise
+  """               
+  import numpy as np
+  if ys.ndim == 1: return np.outer(ys, ys)
+  y = ys - np.mean(ys, axis=0) if center else ys
+  return np.einsum('ij,ik->jk', y, y)
