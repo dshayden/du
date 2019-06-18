@@ -9,6 +9,7 @@ def catrnd(p):
                  the columns of p all sum to 1.
   """
   cs = np.cumsum(p, axis=1)
+  assert np.allclose(cs[:,-1], 1.0), 'du.stats.catrnd :: non-unit probabilities'
   rv = np.random.rand(p.shape[0])[:,np.newaxis]
   return np.argmax(rv <= cs, axis=1)
 

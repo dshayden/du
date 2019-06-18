@@ -900,7 +900,7 @@ def For(fcn, items, nWorkers=None, unpack=None, **kwargs):
     if type(items[0]) == list or type(items[0]) == tuple: unpack = True
     else: unpack = False
   if nWorkers is None: nWorkers = -1
-  if kwargs.get('showProgress', True):
+  if kwargs.get('showProgress', False):
     res = []
     bar = progressbar.ProgressBar()
     if unpack:
@@ -1031,7 +1031,7 @@ def savepcd(pts, shape, fname):
 def mrdivide(B, A):
   """Solve xA = B for x. Similar to Matlab's B/A"""
   import numpy as np
-  return np.linalg.solve(A.T, B.T)
+  return np.linalg.solve(A.T, B.T).T
 
 def RectCoords(R, fill=False, shape=None):
   """ Get rectangle row, column coordinates for drawing in an image.
@@ -1377,3 +1377,13 @@ def scatter_matrix(ys, center=True):
   if ys.ndim == 1: return np.outer(ys, ys)
   y = ys - np.mean(ys, axis=0) if center else ys
   return np.einsum('ij,ik->jk', y, y)
+
+def SavePlots(idx, fcn, names):
+  import matplotlib.pyplot as plt
+  if type(names) != list and type(names) != tuple: names = [names, ]
+
+  def save(i):
+    fcn(i)
+    plt.savefig(names[i], dpi=300, bbox_inches='tight')
+    plt.close()
+  For(save, idx)
