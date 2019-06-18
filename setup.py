@@ -21,7 +21,7 @@ setup(name='du',
   license='MIT',
   packages=['du'],
   install_requires=[
-    'joblib', 'numpy', 'opencv-python>=3.1', 'scipy', 'scikit-image',
+    'numpy', 'opencv-python>=3.1', 'scipy', 'scikit-image',
     'matplotlib', 'screeninfo', 'distex', 'tqdm', 'progressbar', 'Pillow'
   ],
   test_suite='nose.collector',
