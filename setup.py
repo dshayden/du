@@ -19,7 +19,7 @@ setup(name='du',
   author='David S. Hayden',
   author_email='dshayden@mit.edu',
   license='MIT',
-  packages=['du'],
+  packages=['du', 'du.stats'],
   install_requires=[
     'numpy', 'opencv-python>=3.1', 'scipy', 'scikit-image',
     'matplotlib', 'screeninfo', 'distex', 'tqdm', 'progressbar', 'Pillow'
