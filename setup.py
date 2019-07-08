@@ -12,7 +12,7 @@ setup(name='du',
   classifiers=[
     'Development Status :: 3 - Alpha',
     'License :: OSI Approved :: MIT License',
-    'Programming Language :: Python :: 2.7',
+    'Programming Language :: Python :: 3.7',
   ],
   keywords='data science utility',
   url='',
