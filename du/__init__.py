@@ -1387,3 +1387,15 @@ def SavePlots(idx, fcn, names):
     plt.savefig(names[i], dpi=300, bbox_inches='tight')
     plt.close()
   For(save, idx)
+
+def GetDataLims(y, **kwargs):
+  # get lower, upper limits of data along each of last axis
+  import numpy as np
+  K = y.shape[-1]
+  extra = kwargs.get('extra', 0.1)
+
+  axReduce = tuple(np.arange(y.ndim-1).tolist())
+  mins = np.min(y, axis=axReduce)
+  maxs = np.max(y, axis=axReduce)
+  diff = (maxs - mins) * extra
+  return np.array((mins - diff, maxs - diff)).T
