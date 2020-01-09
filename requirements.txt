@@ -1,0 +1,10 @@
+numpy
+opencv-python>=3.1
+scipy
+scikit-image
+matplotlib
+screeninfo
+distex
+tqdm
+progressbar
+Pillow
