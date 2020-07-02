@@ -745,20 +745,6 @@ def load(fname, msgpack=False):
   f.close()
   return obj
 
-# def load(fname):
-#   """ Load a gzipped, pickled, object.
-#
-#   Args:
-#     fname (str): file to load from, will append .picklez if there is no ext.
-#   """
-#   import gzip, pickle
-#   base, name, ext = fileparts(fname)
-#   if len(ext)==0: fname = fname + '.picklez'
-#   f = gzip.open(fname, 'rb')
-#   obj = pickle.load(f)
-#   f.close()
-#   return obj
-
 def save(fname, obj, level=6, msgpack=False):
   """ Save an object as a pickle, then parallel-gzip with pigz.
 
@@ -787,21 +773,10 @@ def save(fname, obj, level=6, msgpack=False):
   if parts[2].lower() == '.gz':
     os.rename(fname, ''.join(parts[:2]))
     fname = ''.join(parts[:2])
-  subprocess.call(('pigz', '-f', '-%d' % level, fname))
-
-# def save(fname, obj):
-#   """ Save an object as a gzipped pickle.
-#
-#   Args:
-#     fname (str): File to save to, will append .picklez if there is no ext.
-#     obj (object): Python object that can be pickled.
-#   """
-#   import gzip, pickle
-#   base, name, ext = fileparts(fname)
-#   if len(ext)==0: fname = fname + '.picklez'
-#   f = gzip.open(fname, 'wb', compresslevel=3)
-#   pickle.dump(obj, f)
-#   f.close()
+  try:
+    subprocess.call(('pigz', '-f', '-%d' % level, fname))
+  except:
+    print('Error in compressing saved file; Make sure pigz is installed (https://zlib.net/pigz/ or https://blog.kowalczyk.info/software/pigz-for-windows.html)')
 
 def ParforT(fcn, items, nWorkers=None, unpack=None, returnExc=False, **kwargs):
   """Runs supplied function for each item in items in parallel via concurrent
