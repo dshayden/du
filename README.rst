@@ -9,10 +9,8 @@ Python, but has since grown to graeter functionality. Example use::
     >>> squares = du.Parfor(f, range(10))
 
 Some particularly useful functions include:
-* save, load : save/load pickles parallel-compressed with pigz for small
-               binaries (like Matlab)
-* Parfor, ParforD, ParforT : Process- or Thread-level parallelism with a
-                             function and a list of inputs.
+* save, load : save/load pickles parallel-compressed with pigz for small binaries (like Matlab)
+* Parfor, ParforD, ParforT : Process- or Thread-level parallelism with a function and a list of inputs.
 * tic, toc : timing functions, as in Matlab
 * GetFilePaths, GetImgPaths : list of absolute paths of files with pattern.
 * DrawOnIm : draw on image, including with alpha channel.
